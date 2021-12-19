@@ -269,31 +269,37 @@ invalid:
  * look up paths on its own. Instead, we handle the lookup as a special case
  * inside of the write request.
  */
-static void fuse_dentry_canonical_path(const struct path *path,
-				       struct path *canonical_path)
-{
-	struct inode *inode = d_inode(path->dentry);
+static void fuse_dentry_canonical_path(const struct path *path, struct path *canonical_path) {
+	struct inode *inode = path->dentry->d_inode;
 	struct fuse_conn *fc = get_fuse_conn(inode);
-	FUSE_ARGS(args);
-	char *path_name;
+	struct fuse_req *req;
 	int err;
+	char *path_name;
 
-	path_name = (char *)__get_free_page(GFP_KERNEL);
-	if (!path_name)
+	req = fuse_get_req(fc, 1);
+	err = PTR_ERR(req);
+	if (IS_ERR(req))
 		goto default_path;
 
-	args.in.h.opcode = FUSE_CANONICAL_PATH;
-	args.in.h.nodeid = get_node_id(inode);
-	args.in.numargs = 0;
-	args.out.numargs = 1;
-	args.out.args[0].size = PATH_MAX;
-	args.out.args[0].value = path_name;
-	args.out.argvar = 1;
-	args.out.canonical_path = canonical_path;
+	path_name = (char*)__get_free_page(GFP_KERNEL);
+	if (!path_name) {
+		fuse_put_request(fc, req);
+		goto default_path;
+	}
 
-	err = fuse_simple_request(fc, &args);
+	req->in.h.opcode = FUSE_CANONICAL_PATH;
+	req->in.h.nodeid = get_node_id(inode);
+	req->in.numargs = 0;
+	req->out.numargs = 1;
+	req->out.args[0].size = PATH_MAX;
+	req->out.args[0].value = path_name;
+	req->canonical_path = canonical_path;
+	req->out.argvar = 1;
+	fuse_request_send(fc, req);
+	err = req->out.h.error;
+	fuse_put_request(fc, req);
 	free_page((unsigned long)path_name);
-	if (err > 0)
+	if (!err)
 		return;
 default_path:
 	canonical_path->dentry = path->dentry;

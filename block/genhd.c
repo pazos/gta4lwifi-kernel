@@ -214,17 +214,14 @@ struct hd_struct *disk_part_iter_next(struct disk_part_iter *piter)
 		part = rcu_dereference(ptbl->part[piter->idx]);
 		if (!part)
 			continue;
-		get_device(part_to_dev(part));
-		piter->part = part;
 		if (!part_nr_sects_read(part) &&
 		    !(piter->flags & DISK_PITER_INCL_EMPTY) &&
 		    !(piter->flags & DISK_PITER_INCL_EMPTY_PART0 &&
-		      piter->idx == 0)) {
-			put_device(part_to_dev(part));
-			piter->part = NULL;
+		      piter->idx == 0))
 			continue;
-		}
 
+		get_device(part_to_dev(part));
+		piter->part = part;
 		piter->idx += inc;
 		break;
 	}
@@ -629,8 +626,10 @@ static void register_disk(struct device *parent, struct gendisk *disk)
 	disk->part0.holder_dir = kobject_create_and_add("holders", &ddev->kobj);
 	disk->slave_dir = kobject_create_and_add("slaves", &ddev->kobj);
 
-	if (disk->flags & GENHD_FL_HIDDEN)
+	if (disk->flags & GENHD_FL_HIDDEN) {
+		dev_set_uevent_suppress(ddev, 0);
 		return;
+	}
 
 	/* No minors to use for partitions */
 	if (!disk_part_scan_enabled(disk))
@@ -665,12 +664,10 @@ exit:
 	}
 	disk_part_iter_exit(&piter);
 
-	if (disk->queue->backing_dev_info->dev) {
-		err = sysfs_create_link(&ddev->kobj,
-			  &disk->queue->backing_dev_info->dev->kobj,
-			  "bdi");
-		WARN_ON(err);
-	}
+	err = sysfs_create_link(&ddev->kobj,
+				&disk->queue->backing_dev_info->dev->kobj,
+				"bdi");
+	WARN_ON(err);
 }
 
 /**
@@ -1091,7 +1088,7 @@ static int show_iodevs(struct seq_file *seqf, void *v)
 	struct hd_struct *part;
 	char buf[BDEVNAME_SIZE];
 
-	/* Don't show non-partitionable removeable devices or empty devices */
+	/* Don't show non-partitionable removable devices or empty devices */
 	if (!get_capacity(sgp) || (!disk_max_parts(sgp) &&
 				(sgp->flags & GENHD_FL_REMOVABLE)))
 		return 0;
@@ -1486,7 +1483,7 @@ static const struct seq_operations diskstats_op = {
 	.show	= diskstats_show
 };
 
-/* IOPP-iod-v1.0.4.19 - change inflight count*/
+/* IOPP-iod-v1.1.k4.19 */
 #define PG2KB(x) ((unsigned long)((x) << (PAGE_SHIFT - 10)))
 static int iostats_show(struct seq_file *seqf, void *v)
 {
@@ -1529,17 +1526,16 @@ static int iostats_show(struct seq_file *seqf, void *v)
 				part_stat_read(hd, merges[WRITE]) + part_stat_read(hd, merges[STAT_DISCARD]),
 				part_stat_read(hd, sectors[WRITE]) + part_stat_read(hd, sectors[STAT_DISCARD]),
 				(unsigned int)part_stat_read_msecs(hd, STAT_WRITE),
-				/*part_in_flight(hd),*/
 				inflight[0] + inflight[1],
 				jiffies_to_msecs(part_stat_read(hd, io_ticks)),
 				jiffies_to_msecs(part_stat_read(hd, time_in_queue)),
-				/* followings are added */
+				/* following are added */
 				part_stat_read(hd, ios[STAT_DISCARD]),
 				part_stat_read(hd, sectors[STAT_DISCARD]),
 				part_stat_read(hd, flush_ios),
 				gp->queue->flush_ios,
 
-				inflight[0],
+				inflight[0], /* read request count */
 				gp->queue->in_flight_time / USEC_PER_MSEC,
 				PG2KB(thresh),
 				PG2KB(bdi->last_thresh),

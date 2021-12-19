@@ -63,7 +63,6 @@ struct rmnet_port {
 	u8 rmnet_mode;
 	struct hlist_head muxed_ep[RMNET_MAX_LOGICAL_EP];
 	struct net_device *bridge_ep;
-	struct net_device *rmnet_dev;
 	void *rmnet_perf;
 
 	struct rmnet_egress_agg_params egress_agg_params;
@@ -183,7 +182,7 @@ enum rmnet_trace_evt {
 };
 
 int rmnet_is_real_dev_registered(const struct net_device *real_dev);
-struct rmnet_port *rmnet_get_port_rcu(struct net_device *real_dev);
+struct rmnet_port *rmnet_get_port(struct net_device *real_dev);
 struct rmnet_endpoint *rmnet_get_endpoint(struct rmnet_port *port, u8 mux_id);
 int rmnet_add_bridge(struct net_device *rmnet_dev,
 		     struct net_device *slave_dev,

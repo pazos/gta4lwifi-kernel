@@ -2,7 +2,7 @@
 /*
  * QTI Secure Execution Environment Communicator (QSEECOM) driver
  *
- * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 
 #define pr_fmt(fmt) "QSEECOM: %s: " fmt, __func__
@@ -91,7 +91,7 @@
 #define TWO 2
 #define QSEECOM_UFS_ICE_CE_NUM 10
 #define QSEECOM_SDCC_ICE_CE_NUM 20
-#define QSEECOM_ICE_FDE_KEY_INDEX 31
+#define QSEECOM_ICE_FDE_KEY_INDEX 0
 
 #define PHY_ADDR_4G	(1ULL<<32)
 
@@ -458,10 +458,6 @@ static int get_qseecom_keymaster_status(char *str)
 }
 __setup("androidboot.keymaster=", get_qseecom_keymaster_status);
 
-static int __qseecom_alloc_coherent_buf(
-			uint32_t size, u8 **vaddr, phys_addr_t *paddr);
-static void __qseecom_free_coherent_buf(uint32_t size,
-				u8 *vaddr, phys_addr_t paddr);
 
 #define QSEECOM_SCM_EBUSY_WAIT_MS 30
 #define QSEECOM_SCM_EBUSY_MAX_RETRY 67
@@ -704,7 +700,7 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 			qseecom.smcinvoke_support = true;
 			smc_id = TZ_OS_REGISTER_LISTENER_SMCINVOKE_ID;
 			ret = __qseecom_scm_call2_locked(smc_id, &desc);
-			if (ret == -EOPNOTSUPP) {
+			if (ret == -EIO) {
 				/* smcinvoke is not supported */
 				qseecom.smcinvoke_support = false;
 				smc_id = TZ_OS_REGISTER_LISTENER_ID;
@@ -2623,6 +2619,7 @@ err_resp:
 		case QSEOS_RESULT_CBACK_REQUEST:
 			pr_warn("get cback req app_id = %d, resp->data = %d\n",
 				data->client.app_id, resp->data);
+			resp->resp_type = SMCINVOKE_RESULT_INBOUND_REQ_NEEDED;
 			break;
 		default:
 			pr_err("fail:resp res= %d,app_id = %d,lstr = %d\n",
@@ -3657,8 +3654,7 @@ int __qseecom_process_reentrancy(struct qseecom_command_scm_resp *resp,
 }
 
 static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
-			struct qseecom_send_cmd_req *req,
-			bool is_phys_adr)
+				struct qseecom_send_cmd_req *req)
 {
 	int ret = 0;
 	u32 reqd_len_sb_in = 0;
@@ -3700,20 +3696,11 @@ static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
 
 	if (qseecom.qsee_version < QSEE_VERSION_40) {
 		send_data_req.app_id = data->client.app_id;
-
-		if (!is_phys_adr) {
-			send_data_req.req_ptr =
-				(uint32_t)(__qseecom_uvirt_to_kphys
-				(data, (uintptr_t)req->cmd_req_buf));
-			send_data_req.rsp_ptr =
-				(uint32_t)(__qseecom_uvirt_to_kphys(
-				data, (uintptr_t)req->resp_buf));
-		} else {
-			send_data_req.req_ptr = (uint32_t)req->cmd_req_buf;
-			send_data_req.rsp_ptr = (uint32_t)req->resp_buf;
-		}
-
+		send_data_req.req_ptr = (uint32_t)(__qseecom_uvirt_to_kphys(
+					data, (uintptr_t)req->cmd_req_buf));
 		send_data_req.req_len = req->cmd_req_len;
+		send_data_req.rsp_ptr = (uint32_t)(__qseecom_uvirt_to_kphys(
+					data, (uintptr_t)req->resp_buf));
 		send_data_req.rsp_len = req->resp_len;
 		send_data_req.sglistinfo_ptr =
 				(uint32_t)data->sglistinfo_shm.paddr;
@@ -3724,21 +3711,11 @@ static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
 		cmd_len = sizeof(struct qseecom_client_send_data_ireq);
 	} else {
 		send_data_req_64bit.app_id = data->client.app_id;
-
-		if (!is_phys_adr) {
-			send_data_req_64bit.req_ptr =
-				 __qseecom_uvirt_to_kphys(data,
-				(uintptr_t)req->cmd_req_buf);
-			send_data_req_64bit.rsp_ptr =
-				__qseecom_uvirt_to_kphys(data,
-				(uintptr_t)req->resp_buf);
-		} else {
-			send_data_req_64bit.req_ptr =
-				(uintptr_t)req->cmd_req_buf;
-			send_data_req_64bit.rsp_ptr =
-				(uintptr_t)req->resp_buf;
-		}
+		send_data_req_64bit.req_ptr = __qseecom_uvirt_to_kphys(data,
+					(uintptr_t)req->cmd_req_buf);
 		send_data_req_64bit.req_len = req->cmd_req_len;
+		send_data_req_64bit.rsp_ptr = __qseecom_uvirt_to_kphys(data,
+					(uintptr_t)req->resp_buf);
 		send_data_req_64bit.rsp_len = req->resp_len;
 		/* check if 32bit app's phys_addr region is under 4GB.*/
 		if ((data->client.app_arch == ELFCLASS32) &&
@@ -3836,7 +3813,7 @@ static int qseecom_send_cmd(struct qseecom_dev_handle *data, void __user *argp)
 	if (__validate_send_cmd_inputs(data, &req))
 		return -EINVAL;
 
-	ret = __qseecom_send_cmd(data, &req, false);
+	ret = __qseecom_send_cmd(data, &req);
 
 	return ret;
 }
@@ -4323,9 +4300,6 @@ static int __qseecom_send_modfd_cmd(struct qseecom_dev_handle *data,
 	int i;
 	struct qseecom_send_modfd_cmd_req req;
 	struct qseecom_send_cmd_req send_cmd_req;
-	void *origin_req_buf_kvirt, *origin_rsp_buf_kvirt;
-	phys_addr_t pa;
-	u8 *va = NULL;
 
 	ret = copy_from_user(&req, argp, sizeof(req));
 	if (ret) {
@@ -4349,61 +4323,32 @@ static int __qseecom_send_modfd_cmd(struct qseecom_dev_handle *data,
 			return -EINVAL;
 		}
 	}
-
-	/*Back up original address */
-	origin_req_buf_kvirt = (void *)__qseecom_uvirt_to_kvirt(data,
-				(uintptr_t)req.cmd_req_buf);
-	origin_rsp_buf_kvirt = (void *)__qseecom_uvirt_to_kvirt(data,
-				(uintptr_t)req.resp_buf);
-
-	/* Allocate kernel buffer for request and response*/
-	ret = __qseecom_alloc_coherent_buf(req.cmd_req_len + req.resp_len,
-					&va, &pa);
-	if (ret) {
-		pr_err("Failed to allocate coherent buf, ret %d\n", ret);
-		return ret;
-	}
-
-	req.cmd_req_buf = va;
-	send_cmd_req.cmd_req_buf = (void *)pa;
-
-	req.resp_buf = va + req.cmd_req_len;
-	send_cmd_req.resp_buf = (void *)pa + req.cmd_req_len;
-
-	/* Copy the data to kernel request and response buffers*/
-	memcpy(req.cmd_req_buf, origin_req_buf_kvirt, req.cmd_req_len);
-	memcpy(req.resp_buf, origin_rsp_buf_kvirt, req.resp_len);
+	req.cmd_req_buf = (void *)__qseecom_uvirt_to_kvirt(data,
+						(uintptr_t)req.cmd_req_buf);
+	req.resp_buf = (void *)__qseecom_uvirt_to_kvirt(data,
+						(uintptr_t)req.resp_buf);
 
 	if (!is_64bit_addr) {
 		ret = __qseecom_update_cmd_buf(&req, false, data);
 		if (ret)
-			goto out;
-		ret = __qseecom_send_cmd(data, &send_cmd_req, true);
+			return ret;
+		ret = __qseecom_send_cmd(data, &send_cmd_req);
 		if (ret)
-			goto out;
+			return ret;
 		ret = __qseecom_update_cmd_buf(&req, true, data);
 		if (ret)
-			goto out;
+			return ret;
 	} else {
 		ret = __qseecom_update_cmd_buf_64(&req, false, data);
 		if (ret)
-			goto out;
-		ret = __qseecom_send_cmd(data, &send_cmd_req, true);
+			return ret;
+		ret = __qseecom_send_cmd(data, &send_cmd_req);
 		if (ret)
-			goto out;
+			return ret;
 		ret = __qseecom_update_cmd_buf_64(&req, true, data);
 		if (ret)
-			goto out;
+			return ret;
 	}
-
-	/*Copy the response back to the userspace buffer*/
-	memcpy(origin_rsp_buf_kvirt, req.resp_buf, req.resp_len);
-	memcpy(origin_req_buf_kvirt, req.cmd_req_buf, req.cmd_req_len);
-
-out:
-	if (req.cmd_req_buf)
-		__qseecom_free_coherent_buf(req.cmd_req_len + req.resp_len,
-			req.cmd_req_buf, (phys_addr_t)send_cmd_req.cmd_req_buf);
 
 	return ret;
 }
@@ -5266,14 +5211,12 @@ int qseecom_send_command(struct qseecom_handle *handle, void *send_buf,
 		}
 		perf_enabled = true;
 	}
-	if (!strcmp(data->client.app_name, "securemm") ||
-	    !strcmp(data->client.app_name, "slateapp")) {
+	if (!strcmp(data->client.app_name, "securemm"))
 		data->use_legacy_cmd = true;
-	}
 
 	dmac_flush_range(req.cmd_req_buf, req.cmd_req_buf + req.cmd_req_len);
 
-	ret = __qseecom_send_cmd(data, &req, false);
+	ret = __qseecom_send_cmd(data, &req);
 
 	dmac_flush_range(req.resp_buf, req.resp_buf + req.resp_len);
 
@@ -5344,13 +5287,6 @@ int qseecom_process_listener_from_smcinvoke(struct scm_desc *desc)
 		return -EINVAL;
 	}
 
-	/*
-	 * smcinvoke expects result in scm call resp.ret[1] and type in ret[0],
-	 * while qseecom expects result in ret[0] and type in ret[1].
-	 * To simplify API interface and code changes in smcinvoke, here
-	 * internally switch result and resp_type to let qseecom work with
-	 * smcinvoke and upstream scm driver protocol.
-	 */
 	resp.result = desc->ret[0];	/*req_cmd*/
 	resp.resp_type = desc->ret[1]; /*incomplete:unused;blocked:session_id*/
 	resp.data = desc->ret[2];	/*listener_id*/
@@ -9700,8 +9636,7 @@ static int qseecom_suspend(struct platform_device *pdev, pm_message_t state)
 
 	mutex_unlock(&clk_access_lock);
 	mutex_unlock(&qsee_bw_mutex);
-	if (qseecom.support_bus_scaling)
-		cancel_work_sync(&qseecom.bw_inactive_req_ws);
+	cancel_work_sync(&qseecom.bw_inactive_req_ws);
 
 	return 0;
 }

@@ -19,6 +19,10 @@ enum {
 	PM_QOS_NETWORK_THROUGHPUT,
 	PM_QOS_MEMORY_BANDWIDTH,
 
+#if IS_ENABLED(CONFIG_SEC_INPUT_BOOSTER)
+	PM_QOS_BIAS_HYST,
+#endif
+
 	/* insert new class ID */
 	PM_QOS_NUM_CLASSES,
 };
@@ -43,6 +47,10 @@ enum pm_qos_flags_status {
 #define PM_QOS_RESUME_LATENCY_NO_CONSTRAINT_NS	PM_QOS_LATENCY_ANY_NS
 #define PM_QOS_LATENCY_TOLERANCE_DEFAULT_VALUE	0
 #define PM_QOS_LATENCY_TOLERANCE_NO_CONSTRAINT	(-1)
+
+#if IS_ENABLED(CONFIG_SEC_INPUT_BOOSTER)
+#define PM_QOS_BIAS_HYST_DEFAULT_VALUE 0
+#endif
 
 #define PM_QOS_FLAG_NO_POWER_OFF	(1 << 0)
 
@@ -136,8 +144,7 @@ static inline int dev_pm_qos_request_active(struct dev_pm_qos_request *req)
 }
 
 int pm_qos_update_target(struct pm_qos_constraints *c, struct plist_node *node,
-			 enum pm_qos_req_action action, int value,
-			 bool dev_req);
+			 enum pm_qos_req_action action, int value);
 bool pm_qos_update_flags(struct pm_qos_flags *pqf,
 			 struct pm_qos_flags_request *req,
 			 enum pm_qos_req_action action, s32 val);

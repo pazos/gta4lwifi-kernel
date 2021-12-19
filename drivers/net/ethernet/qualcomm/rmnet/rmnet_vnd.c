@@ -279,7 +279,7 @@ static void rmnet_get_ethtool_stats(struct net_device *dev,
 	struct rmnet_port_priv_stats *stp;
 	struct rmnet_port *port;
 
-	port = rmnet_get_port_rcu(priv->real_dev);
+	port = rmnet_get_port(priv->real_dev);
 
 	if (!data || !port)
 		return;
@@ -298,7 +298,7 @@ static int rmnet_stats_reset(struct net_device *dev)
 	struct rmnet_priv_stats *st;
 	struct rmnet_port *port;
 
-	port = rmnet_get_port_rcu(priv->real_dev);
+	port = rmnet_get_port(priv->real_dev);
 	if (!port)
 		return -EINVAL;
 
@@ -390,6 +390,14 @@ int rmnet_vnd_dellink(u8 id, struct rmnet_port *port,
 	ep->egress_dev = NULL;
 	port->nr_rmnet_devs--;
 	return 0;
+}
+
+u8 rmnet_vnd_get_mux(struct net_device *rmnet_dev)
+{
+	struct rmnet_priv *priv;
+
+	priv = netdev_priv(rmnet_dev);
+	return priv->mux_id;
 }
 
 int rmnet_vnd_do_flow_control(struct net_device *rmnet_dev, int enable)
