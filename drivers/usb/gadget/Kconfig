@@ -671,6 +671,14 @@ config USB_CONFIGFS_F_PTP
 
 source "drivers/usb/gadget/legacy/Kconfig"
 
+config CONFIG_USB_F_MTP_SAMSUNG
+	bool "Samsung MTP function"
+	depends on USB_G_ANDROID
+	help
+	  Provides Media Transfer Protocol (MTP) support
+	  for samsung gadget driver. If you enable this option
+	  google mtp will be changed to samsung mtp.
+
 config USB_DUN_SUPPORT
 	bool "DUN support function"
         depends on USB_F_ACM
